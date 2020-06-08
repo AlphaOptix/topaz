@@ -44,6 +44,7 @@
 #include "../item_container.h"
 #include "../latent_effect_container.h"
 #include "../linkshell.h"
+#include "../job_points.h"
 #include "../map.h"
 #include "../message.h"
 #include "../mob_modifier.h"
@@ -114,6 +115,7 @@
 #include "../packets/inventory_modify.h"
 #include "../packets/inventory_size.h"
 #include "../packets/key_items.h"
+#include "../packets/menu_jp.h"
 #include "../packets/menu_mog.h"
 #include "../packets/menu_merit.h"
 #include "../packets/menu_raisetractor.h"
@@ -4888,7 +4890,7 @@ inline int32 CLuaBaseEntity::getCampaignAllegiance(lua_State *L)
 *  Function: setCampaignAllegiance()
 *  Purpose : Affiliates the player with a particular nation in the past
 *  Example : targ:setCampaignAllegiance(nation)
-*  Notes   :
+*  Notes   :incom
 ************************************************************************/
 
 inline int32 CLuaBaseEntity::setCampaignAllegiance(lua_State *L)
@@ -5243,6 +5245,7 @@ inline int32 CLuaBaseEntity::changeJob(lua_State *L)
     puppetutils::LoadAutomaton(PChar);
     charutils::SetStyleLock(PChar, false);
     luautils::CheckForGearSet(PChar); // check for gear set on gear change
+    jobpointutils::AddGiftMods(PChar);
     charutils::BuildingCharSkillsTable(PChar);
     charutils::CalculateStats(PChar);
     charutils::CheckValidEquipment(PChar);
@@ -5443,6 +5446,7 @@ inline int32 CLuaBaseEntity::setLevel(lua_State *L)
         blueutils::ValidateBlueSpells(PChar);
         charutils::CalculateStats(PChar);
         charutils::CheckValidEquipment(PChar);
+        jobpointutils::AddGiftMods(PChar);
         charutils::BuildingCharSkillsTable(PChar);
         charutils::BuildingCharAbilityTable(PChar);
         charutils::BuildingCharTraitsTable(PChar);
@@ -5491,6 +5495,7 @@ inline int32 CLuaBaseEntity::setsLevel(lua_State *L)
     PChar->jobs.exp[PChar->GetSJob()] = charutils::GetExpNEXTLevel(PChar->jobs.job[PChar->GetSJob()]) - 1;
 
     charutils::SetStyleLock(PChar, false);
+    jobpointutils::AddGiftMods(PChar);
     charutils::BuildingCharSkillsTable(PChar);
     charutils::CalculateStats(PChar);
     charutils::CheckValidEquipment(PChar);
@@ -5587,6 +5592,7 @@ inline int32 CLuaBaseEntity::levelRestriction(lua_State* L)
             if (PChar->status != STATUS_DISAPPEAR)
             {
                 blueutils::ValidateBlueSpells(PChar);
+                jobpointutils::AddGiftMods(PChar);
                 charutils::BuildingCharSkillsTable(PChar);
                 charutils::CalculateStats(PChar);
                 charutils::BuildingCharTraitsTable(PChar);
@@ -6524,7 +6530,7 @@ inline int32 CLuaBaseEntity::completeMission(lua_State *L)
 *  Function: setMissionLogEx()
 *  Purpose : Sets mission log extra data to correctly track progress in branching missions.
 *  Example : player:setMissionLogEx(tpz.mission.log_id.COP, tpz.mission.logEx.ULMIA, 14)
-*  Notes   : 
+*  Notes   :
 ************************************************************************/
 
 inline int32 CLuaBaseEntity::setMissionLogEx(lua_State *L)
@@ -6958,6 +6964,52 @@ inline int32 CLuaBaseEntity::getMeritCount(lua_State *L)
     }
 
     return 1;
+}
+
+/************************************************************************
+*  Function: getJobPointValue()
+*  Purpose : Returns the current value a specific job point
+*  Example : player:getJobPointValue(JP_MIGHTY_STRIKES_EFFECT)
+*  Notes   :
+************************************************************************/
+inline int32 CLuaBaseEntity::getJobPointValue(lua_State *L)
+{
+    TPZ_DEBUG_BREAK_IF(m_PBaseEntity == nullptr);
+    TPZ_DEBUG_BREAK_IF(lua_isnil(L, 1) || !lua_isnumber(L, 1));
+
+    if (m_PBaseEntity->objtype != TYPE_PC)
+    {
+        lua_pushinteger(L, 0);
+    }
+    else
+    {
+        CCharEntity* PChar = (CCharEntity*)m_PBaseEntity;
+        lua_pushinteger(L, PChar->PJobPoints->GetJobPointValue((JOBPOINT_TYPE)lua_tointeger(L, 1)));
+    }
+    return 1;
+}
+
+/************************************************************************
+*  Function: setJobPoints()
+*  Purpose : Sets the jobpoints for a player for all jobs to an amount
+*  Example : player:setJobPoints(30)
+*  Notes   : Used in GM command
+************************************************************************/
+
+inline int32 CLuaBaseEntity::setJobPoints(lua_State *L)
+{
+    TPZ_DEBUG_BREAK_IF(m_PBaseEntity == nullptr);
+    TPZ_DEBUG_BREAK_IF(m_PBaseEntity->objtype != TYPE_PC);
+
+    TPZ_DEBUG_BREAK_IF(lua_isnil(L, 1) || !lua_isnumber(L, 1));
+
+    CCharEntity* PChar = (CCharEntity*)m_PBaseEntity;
+
+    PChar->PJobPoints->SetJobPoints((uint16)lua_tointeger(L, 1));
+
+    PChar->pushPacket(new CMenuJobPointsPacket(PChar));
+
+    return 0;
 }
 
 /************************************************************************
@@ -8128,6 +8180,7 @@ inline int32 CLuaBaseEntity::setSkillLevel(lua_State *L)
     PChar->RealSkills.skill[SkillID] = SkillAmount;
     PChar->WorkingSkills.skill[SkillID] = (SkillAmount / 10) * 0x20 + PChar->WorkingSkills.rank[SkillID];
 
+    jobpointutils::AddGiftMods(PChar);
     charutils::BuildingCharSkillsTable(PChar);
     charutils::CheckWeaponSkill(PChar, SkillID);
     charutils::SaveCharSkills(PChar, SkillID);
@@ -8200,6 +8253,7 @@ inline int32 CLuaBaseEntity::setSkillRank(lua_State *L)
     PChar->RealSkills.rank[skillID] = newrank;
     //PChar->RealSkills.skill[skillID] += 1;
 
+    jobpointutils::AddGiftMods(PChar);
     charutils::BuildingCharSkillsTable(PChar);
     charutils::SaveCharSkills(PChar, skillID);
     PChar->pushPacket(new CCharSkillsPacket(PChar));
@@ -9960,6 +10014,7 @@ int32 CLuaBaseEntity::recalculateStats(lua_State* L)
     if (m_PBaseEntity->objtype == TYPE_PC)
     {
         auto PChar {static_cast<CCharEntity*>(m_PBaseEntity)};
+        jobpointutils::AddGiftMods(PChar);
         charutils::BuildingCharSkillsTable(PChar);
         charutils::CalculateStats(PChar);
         charutils::CheckValidEquipment(PChar);
@@ -14408,6 +14463,8 @@ Lunar<CLuaBaseEntity>::Register_t CLuaBaseEntity::methods[] =
     LUNAR_DECLARE_METHOD(CLuaBaseEntity,getMerit),
     LUNAR_DECLARE_METHOD(CLuaBaseEntity,getMeritCount),
     LUNAR_DECLARE_METHOD(CLuaBaseEntity,setMerits),
+    LUNAR_DECLARE_METHOD(CLuaBaseEntity,getJobPointValue),
+    LUNAR_DECLARE_METHOD(CLuaBaseEntity,setJobPoints),
 
     LUNAR_DECLARE_METHOD(CLuaBaseEntity,getGil),
     LUNAR_DECLARE_METHOD(CLuaBaseEntity,addGil),
